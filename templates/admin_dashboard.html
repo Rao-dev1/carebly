@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block header_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>System Overview</h2>
+    <p>Monitor all users, appointments, and system health</p>
+</div>
+
+<!-- CARDS GRID -->
+<div class="cards-grid">
+    <!-- Total Users Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon">👥</div>
+            <h3 class="card-title">Total Users</h3>
+        </div>
+        <div class="card-value">{{ total_users }}</div>
+        <p class="card-text">Patients, Doctors, and Admins</p>
+    </div>
+
+    <!-- Total Patients Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon">🩺</div>
+            <h3 class="card-title">Total Patients</h3>
+        </div>
+        <div class="card-value">{{ total_patients }}</div>
+        <p class="card-text">Registered patient accounts</p>
+    </div>
+
+    <!-- Total Doctors Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon">👨‍⚕️</div>
+            <h3 class="card-title">Total Doctors</h3>
+        </div>
+        <div class="card-value">{{ total_doctors }}</div>
+        <p class="card-text">Registered doctor accounts</p>
+    </div>
+
+    <!-- Total Appointments Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon">📅</div>
+            <h3 class="card-title">Total Appointments</h3>
+        </div>
+        <div class="card-value">{{ total_appointments }}</div>
+        <p class="card-text">All scheduled appointments</p>
+    </div>
+</div>
+
+<!-- APPOINTMENTS TABLE -->
+<div class="table-section">
+    <h3 class="table-title">📋 Recent Appointments</h3>
+    {% if appointments %}
+        <table>
+            <thead>
+                <tr>
+                    <th>PATIENT</th>
+                    <th>DOCTOR</th>
+                    <th>DATE & TIME</th>
+                    <th>STATUS</th>
+                    <th>ACTION</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for appt in appointments %}
+                <tr>
+                    <td><strong>{{ appt.patient_name }}</strong></td>
+                    <td><strong>Dr. {{ appt.doctor_name }}</strong></td>
+                    <td>{{ appt.appointment_datetime }}</td>
+                    <td>
+                        <span class="status-badge status-{{ appt.status }}">
+                            {{ appt.status }}
+                        </span>
+                    </td>
+                    <td>
+                        <a href="#" class="btn btn-primary btn-sm">View</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">📭</div>
+            <h4 class="empty-state-title">No appointments yet</h4>
+            <p class="empty-state-text">Appointments will appear here once users book them</p>
+        </div>
+    {% endif %}
+</div>
+
+<!-- USERS TABLE -->
+<div class="table-section">
+    <h3 class="table-title">👥 System Users</h3>
+    {% if users %}
+        <table>
+            <thead>
+                <tr>
+                    <th>NAME</th>
+                    <th>EMAIL</th>
+                    <th>ROLE</th>
+                    <th>ACTION</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td><strong>{{ user.name }}</strong></td>
+                    <td>{{ user.email }}</td>
+                    <td>
+                        <span class="status-badge status-{{ user.role }}">
+                            {{ user.role }}
+                        </span>
+                    </td>
+                    <td>
+                        <a href="#" class="btn btn-primary btn-sm">View</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">📭</div>
+            <h4 class="empty-state-title">No users yet</h4>
+            <p class="empty-state-text">Users will appear here once they register</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

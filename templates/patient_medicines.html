@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="main-content">
+  <h1>My Prescribed Medicines ({{ name }})</h1>
+
+  {% if medicines %}
+    <ul>
+      {% for m in medicines %}
+        <li style="margin-bottom:12px;">
+          <strong>{{ m.medicine_name }}</strong> – {{ m.dosage }}<br>
+          Frequency: {{ m.frequency }} | Duration: {{ m.duration }}<br>
+          Prescribed by: Dr. {{ m.doctor_name }} on {{ m.prescribed_at }}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No medicines prescribed yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

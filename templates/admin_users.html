@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="main-content">
+  <h1>User Management ({{ name }})</h1>
+
+  <h2>Patients</h2>
+  {% if patients %}
+    <ul>
+      {% for p in patients %}
+        <li>{{ p.id }} – {{ p.name }} ({{ p.email }})</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No patients yet.</p>
+  {% endif %}
+
+  <h2>Doctors</h2>
+  {% if doctors %}
+    <ul>
+      {% for d in doctors %}
+        <li>{{ d.id }} – {{ d.name }} ({{ d.email }})</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No doctors yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block header_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Welcome back, Dr. {{ name }}!</h2>
+    <p>Manage your patient appointments and medical records</p>
+</div>
+
+<!-- CARDS GRID -->
+<div class="cards-grid">
+    <!-- Pending Appointments Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon">⏳</div>
+            <h3 class="card-title">Pending Appointments</h3>
+        </div>
+        <div class="card-value">{{ pending_count }}</div>
+        <p class="card-text">
+            Awaiting your approval or action.
+            <a href="{{ url_for('doctor_appointments') }}" class="btn btn-secondary btn-sm" style="margin-left:0.5rem;">
+                View details
+            </a>
+        </p>
+    </div>
+
+    <!-- Total Patients Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon">👥</div>
+            <h3 class="card-title">Total Patients</h3>
+        </div>
+        <div class="card-value">{{ total_patients }}</div>
+        <p class="card-text">Unique patients you've seen</p>
+    </div>
+
+    <!-- Today's Appointments Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon">📅</div>
+            <h3 class="card-title">Today's Appointments</h3>
+        </div>
+        <div class="card-value">{{ today_count }}</div>
+        <p class="card-text">
+            Appointments scheduled for today.
+            <a href="{{ url_for('doctor_appointments') }}" class="btn btn-secondary btn-sm" style="margin-left:0.5rem;">
+                View list
+            </a>
+        </p>
+    </div>
+</div>
+
+<!-- SIMPLE TABLE PREVIEW (READ-ONLY) -->
+<div class="table-section">
+    <h3 class="table-title">📋 Recent Patient Appointments</h3>
+    {% if appointments %}
+        <table>
+            <thead>
+                <tr>
+                    <th>PATIENT NAME</th>
+                    <th>DATE & TIME</th>
+                    <th>STATUS</th>
+                    <th>ACTION</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for appt in appointments %}
+                <tr>
+                    <td><strong>{{ appt.patient_name }}</strong></td>
+                    <td>{{ appt.appointment_datetime }}</td>
+                    <td>
+                        <span class="status-badge status-{{ appt.status }}">
+                            {{ appt.status }}
+                        </span>
+                    </td>
+                    <td>
+                        {% if appt.status == 'booked' %}
+                            <a href="{{ url_for('add_notes', appt_id=appt.id) }}" class="btn btn-primary btn-sm">
+                                📝 Add Notes
+                            </a>
+                        {% else %}
+                            <a href="{{ url_for('doctor_appointments') }}" class="btn btn-secondary btn-sm">
+                                Open in appointments
+                            </a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">📭</div>
+            <h4 class="empty-state-title">No appointments yet</h4>
+            <p class="empty-state-text">Patient appointments will appear here once they book.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

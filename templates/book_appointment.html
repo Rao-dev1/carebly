@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="main-content">
+  <h1>Book Appointment</h1>
+
+  <form method="POST">
+    <div class="form-group">
+      <label>Select Doctor</label>
+      <select name="doctor_id" required>
+        <option value="">-- Select --</option>
+        {% for d in doctors %}
+          <option value="{{ d.id }}">{{ d.name }} ({{ d.email }})</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Date & Time (YYYY-MM-DD HH:MM)</label>
+      <input type="text" name="date_time" placeholder="2026-01-20 10:30" required>
+    </div>
+
+    <button class="btn btn-primary" type="submit">Book</button>
+  </form>
+</div>
+{% endblock %}

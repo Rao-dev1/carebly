@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="main-content">
+  <h1>All Appointments ({{ name }})</h1>
+
+  {% if appointments %}
+    <table border="1" cellpadding="6" cellspacing="0">
+      <tr>
+        <th>ID</th>
+        <th>Doctor</th>
+        <th>Patient</th>
+        <th>Date & Time</th>
+        <th>Status</th>
+      </tr>
+      {% for a in appointments %}
+        <tr>
+          <td>{{ a.id }}</td>
+          <td>{{ a.doctor_name }}</td>
+          <td>{{ a.patient_name }}</td>
+          <td>{{ a.date_time }}</td>
+          <td>{{ a.status }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <p>No appointments yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

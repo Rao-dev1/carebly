@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block header_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Welcome back, {{ name }}!</h2>
+    <p>Manage your health appointments and medical records</p>
+</div>
+
+<!-- CARDS GRID -->
+<div class="cards-grid">
+    <!-- Upcoming Appointments Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon">📅</div>
+            <h3 class="card-title">Upcoming Appointments</h3>
+        </div>
+        <div class="card-value">{{ upcoming_count }}</div>
+        <p class="card-text">Click on Book Appointment to schedule</p>
+    </div>
+
+    <!-- Current Medicines Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon">💊</div>
+            <h3 class="card-title">Current Medicines</h3>
+        </div>
+        <div class="card-value">{{ medicines_count }}</div>
+        <p class="card-text">View your medication history</p>
+    </div>
+
+    <!-- Last Visit Card -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon">📝</div>
+            <h3 class="card-title">Last Visit</h3>
+        </div>
+        {% if last_visit %}
+            <div style="font-size: 1rem; color: var(--text-dark); margin: 1rem 0;">
+                <strong>{{ last_visit.doctor_name }}</strong><br>
+                <span style="color: var(--text-light);">{{ last_visit.appointment_datetime }}</span>
+            </div>
+        {% else %}
+            <p class="card-text">No visits yet</p>
+            <p class="card-text">Book your first appointment</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- APPOINTMENTS TABLE -->
+<div class="table-section">
+    <h3 class="table-title">📋 Your Appointments</h3>
+    {% if appointments %}
+        <table>
+            <thead>
+                <tr>
+                    <th>DOCTOR NAME</th>
+                    <th>DATE & TIME</th>
+                    <th>STATUS</th>
+                    <th>ACTION</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for appt in appointments %}
+                <tr>
+                    <td><strong>Dr. {{ appt.doctor_name }}</strong></td>
+                    <td>{{ appt.appointment_datetime }}</td>
+                    <td>
+                        <span class="status-badge status-{{ appt.status }}">
+                            {{ appt.status }}
+                        </span>
+                    </td>
+                    <td>
+                        <a href="#" class="btn btn-primary btn-sm">View</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">📭</div>
+            <h4 class="empty-state-title">No appointments yet</h4>
+            <p class="empty-state-text">Book your first appointment to get started</p>
+            <a href="{{ url_for('book_appointment') }}" class="btn btn-primary">📅 Book Appointment</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="main-content">
+  <h1>Appointments for Dr. {{ name }}</h1>
+
+  {% if appointments %}
+    <table border="1" cellpadding="6" cellspacing="0">
+      <tr>
+        <th>ID</th>
+        <th>Patient</th>
+        <th>Email</th>
+        <th>Date & Time</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+      {% for a in appointments %}
+        <tr>
+          <td>{{ a.id }}</td>
+          <td>{{ a.patient_name }}</td>
+          <td>{{ a.patient_email }}</td>
+          <td>{{ a.date_time }}</td>
+          <td>{{ a.status }}</td>
+          <td>
+            {% if a.status == 'pending' %}
+              <form method="POST" style="display:inline;">
+                <input type="hidden" name="appt_id" value="{{ a.id }}">
+                <button class="btn-primary" type="submit" name="action" value="approve">Approve</button>
+              </form>
+              <form method="POST" style="display:inline;">
+                <input type="hidden" name="appt_id" value="{{ a.id }}">
+                <button class="btn-primary" type="submit" name="action" value="reject">Reject</button>
+              </form>
+            {% elif a.status == 'booked' %}
+              <a href="{{ url_for('add_notes', appt_id=a.id) }}">Add notes</a>
+              <a href="{{ url_for('prescribe_medicine', appt_id=a.id) }}">Prescribe</a>
+            {% elif a.status == 'completed' %}
+              <a href="{{ url_for('prescribe_medicine', appt_id=a.id) }}">Prescribe</a>
+            {% else %}
+              No actions
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <p>No appointments yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

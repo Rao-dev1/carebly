@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="main-content">
+  <h1>Prescribe Medicine for Appointment {{ appt.id }}</h1>
+  <p>Patient: {{ appt.patient_name }} | Date & Time: {{ appt.date_time }}</p>
+
+  <h3>Add New Medicine</h3>
+  <form method="POST">
+    <div class="form-group">
+      <label>Medicine Name *</label>
+      <input type="text" name="medicine_name" required>
+    </div>
+
+    <div class="form-group">
+      <label>Dosage (e.g., 500mg)</label>
+      <input type="text" name="dosage">
+    </div>
+
+    <div class="form-group">
+      <label>Frequency (e.g., Twice daily)</label>
+      <input type="text" name="frequency">
+    </div>
+
+    <div class="form-group">
+      <label>Duration (e.g., 7 days)</label>
+      <input type="text" name="duration">
+    </div>
+
+    <button class="btn-primary" type="submit">Add Medicine</button>
+  </form>
+
+  <h3>Prescribed Medicines</h3>
+  {% if medicines %}
+    <ul>
+      {% for m in medicines %}
+        <li>
+          <strong>{{ m.medicine_name }}</strong> – {{ m.dosage }}<br>
+          Frequency: {{ m.frequency }} | Duration: {{ m.duration }}<br>
+          <small>Prescribed at: {{ m.prescribed_at }}</small>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No medicines prescribed yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

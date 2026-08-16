@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="main-content">
+  <h1>Medical History ({{ name }})</h1>
+
+  {% if history %}
+    <ul>
+      {% for h in history %}
+        <li style="margin-bottom:12px;">
+          <strong>{{ h.created_at }}</strong> – Dr. {{ h.doctor_name }}<br>
+          Diagnosis: {{ h.diagnosis }}<br>
+          Notes: {{ h.notes }}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No medical history recorded yet.</p>
+  {% endif %}
+</div>
+{% endblock %}
