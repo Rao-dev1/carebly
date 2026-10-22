@@ -171,3 +171,10 @@ def test_classify_reply():
     assert classify_reply(" YES ") == "confirm"
     assert classify_reply("2") == "cancel"
     assert classify_reply("hello") is None
+
+
+def test_cron_reminder_endpoint_requires_secret(app, client):
+    assert client.post("/tasks/send-reminders").status_code == 403
+    assert client.post("/tasks/send-reminders", headers={"X-Cron-Secret": "nope"}).status_code == 403
+    resp = client.post("/tasks/send-reminders", headers={"X-Cron-Secret": "cron-key"})
+    assert resp.status_code == 200 and resp.get_json() == {"sent": 0}

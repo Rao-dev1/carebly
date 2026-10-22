@@ -27,6 +27,9 @@ class Config:
     # Background reminder job. Run it in exactly one process.
     ENABLE_SCHEDULER = _bool("ENABLE_SCHEDULER", False)
     REMINDER_HOURS_BEFORE = int(os.environ.get("REMINDER_HOURS_BEFORE", "24"))
+    # Secret for /tasks/send-reminders, so an external cron (e.g. cron-job.org)
+    # can trigger reminders on hosts where the app sleeps when idle.
+    CRON_SECRET = os.environ.get("CRON_SECRET", "")
 
     # Country code prepended to local numbers patients type in (India = 91).
     DEFAULT_COUNTRY_CODE = os.environ.get("DEFAULT_COUNTRY_CODE", "91")

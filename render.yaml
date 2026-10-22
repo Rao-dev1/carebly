@@ -1,27 +1,33 @@
 # Render Blueprint: https://render.com/docs/blueprint-spec
 # Create with "New > Blueprint" in the Render dashboard and pick this repo.
+#
+# FREE PLAN (for testing). Two limits to know:
+#  - The free filesystem is wiped on every deploy and restart, so the SQLite
+#    database (patients, appointments) does NOT survive. Fine for a demo,
+#    not for real patients. See README "Going live" for the upgrade.
+#  - Free services sleep after 15 minutes idle. Point a free cron service
+#    (cron-job.org) at /tasks/send-reminders every 10 minutes so reminders
+#    still go out; it also keeps the site awake.
 services:
   - type: web
     name: carebly
     runtime: python
-    plan: starter            # persistent disks need a paid plan
+    plan: free
     region: singapore
     buildCommand: pip install -r requirements.txt
     # One process only: the reminder scheduler runs inside it.
     startCommand: gunicorn app:app --workers 1 --threads 8 --bind 0.0.0.0:$PORT
     healthCheckPath: /healthz
-    disk:
-      name: carebly-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.7
       - key: TZ
         value: Asia/Kolkata
       - key: DATABASE_PATH
-        value: /var/data/carebly.db
+        value: /opt/render/project/src/data/carebly.db
       - key: SECRET_KEY
+        generateValue: true
+      - key: CRON_SECRET
         generateValue: true
       - key: SESSION_COOKIE_SECURE
         value: "1"

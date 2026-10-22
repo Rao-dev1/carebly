@@ -22,26 +22,52 @@ Tables are created automatically on startup (`flask --app app init-db` also work
 admin signup is closed unless `ADMIN_SIGNUP_CODE` is set. Admins add doctors
 from **Users > Add doctor**; patients register themselves from the website.
 
-## Deploy on Render
+## Deploy on Render (free)
 
-1. Push this repo to GitHub, then in Render choose **New > Blueprint** and pick it.
-   `render.yaml` creates a web service with a 1 GB persistent disk for the
-   SQLite database (Starter plan, about $7/month plus $0.25/GB for the disk).
+1. In Render choose **New > Blueprint** and pick this repo. `render.yaml`
+   uses the **free** plan; no card is charged.
 2. Fill in the env vars marked `sync: false` in the dashboard (clinic details,
-   WhatsApp keys). `SECRET_KEY` is generated for you.
-3. Custom domain: **Settings > Custom Domains**, then add the DNS record Render
-   shows at your domain registrar. HTTPS is automatic.
-4. Backups: Render snapshots the disk daily. You can also download
-   `/var/data/carebly.db` from the Render shell.
+   WhatsApp keys). `SECRET_KEY` and `CRON_SECRET` are generated for you.
+3. Free services sleep after 15 minutes idle, which also pauses reminders.
+   Create a free job at cron-job.org that calls
+   `https://<your-app>.onrender.com/tasks/send-reminders?key=<CRON_SECRET>`
+   every 10 minutes.
+4. The site is live at `https://<your-app>.onrender.com`. A custom domain can
+   be added later under **Settings > Custom Domains** (the domain itself costs
+   money at a registrar).
 
-Run only one instance: the reminder job runs inside the web process.
+**Free plan limit:** the disk is wiped on every deploy or restart, so the
+database resets. Use it for testing and demos only.
+
+### Going live (paid, when you're ready)
+
+Change `plan: free` to `plan: starter` (about $7/month) and add a persistent disk
+(about $0.25/GB/month) so the database survives:
+
+```yaml
+    disk:
+      name: carebly-data
+      mountPath: /var/data
+      sizeGB: 1
+```
+
+Then set `DATABASE_PATH=/var/data/carebly.db`. Render snapshots the disk daily.
+Run only one instance, because the reminder job runs inside the web process.
+
+### WhatsApp costs
+
+Meta's test number is free and can message up to 5 numbers you verify, which
+is enough for testing. For real patients, replies to a patient within 24 hours
+of their message are free, but confirmation and reminder templates are billed
+per message by Meta (a small amount per message in India).
 
 ## WhatsApp setup (Meta Cloud API)
 
 1. Create a Meta Business account at business.facebook.com and verify the business.
 2. At developers.facebook.com create an app of type **Business** and add the
    **WhatsApp** product.
-3. Add the clinic's phone number. It must not be registered on the WhatsApp
+3. For testing, use the free test number Meta gives you in **WhatsApp > API Setup**
+   and add up to 5 recipient numbers there. For real use, add the clinic's phone number. It must not be registered on the WhatsApp
    or WhatsApp Business app (delete it there first, or use a new number).
 4. Create a **System User** in Business Settings, give it the app and the
    WhatsApp account, and generate a permanent token with

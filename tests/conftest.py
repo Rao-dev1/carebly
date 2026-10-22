@@ -27,6 +27,7 @@ def app(tmp_path):
         WHATSAPP_PHONE_NUMBER_ID="",
         WHATSAPP_APP_SECRET="test-secret",
         WHATSAPP_VERIFY_TOKEN="verify-me",
+        CRON_SECRET="cron-key",
     )
     carebly.init_db(db_path)
     yield carebly.app

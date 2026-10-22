@@ -5,6 +5,7 @@ from flask_wtf.csrf import CSRFProtect
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 
+import hmac
 import logging
 import sqlite3
 import os
@@ -277,6 +278,15 @@ def home():
         "SELECT id, name, specialty FROM users WHERE role = 'doctor' AND status = 'active' ORDER BY name"
     ).fetchall()
     return render_template("home.html", doctors=doctors)
+
+@app.route("/tasks/send-reminders", methods=["POST", "GET"])
+@csrf.exempt
+def send_reminders_task():
+    secret = app.config["CRON_SECRET"]
+    given = request.headers.get("X-Cron-Secret") or request.args.get("key", "")
+    if not secret or not hmac.compare_digest(secret, given):
+        abort(403)
+    return {"sent": send_due_reminders(get_db())}
 
 @app.route("/healthz")
 def healthz():
