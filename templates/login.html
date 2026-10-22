@@ -2,10 +2,11 @@
 {% block content %}
 <div class="auth-container">
   <div class="login-card">
-    <h1>🏥 Carebly</h1>
-    <p>Online Healthcare Management System</p>
+    <h1>🏥 {{ clinic.name }}</h1>
+    <p>Patient &amp; staff login</p>
 
     <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="form-group">
         <label>Login as</label>
         <select name="role">
@@ -32,10 +33,7 @@
       <a href="{{ url_for('register_patient') }}">Register as Patient</a>
     </div>
     <div style="margin-top: 8px; font-size: 12px;">
-      <a href="{{ url_for('register_doctor') }}">Register as Doctor</a>
-    </div>
-    <div style="margin-top: 8px; font-size: 12px;">
-      <a href="{{ url_for('register_admin') }}">Register as Admin</a>
+      <a href="{{ url_for('home') }}">Back to clinic website</a>
     </div>
 
   </div>

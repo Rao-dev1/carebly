@@ -23,10 +23,12 @@
           <td>
             {% if a.status == 'pending' %}
               <form method="POST" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="appt_id" value="{{ a.id }}">
                 <button class="btn-primary" type="submit" name="action" value="approve">Approve</button>
               </form>
               <form method="POST" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="appt_id" value="{{ a.id }}">
                 <button class="btn-primary" type="submit" name="action" value="reject">Reject</button>
               </form>

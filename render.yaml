@@ -1,0 +1,58 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Create with "New > Blueprint" in the Render dashboard and pick this repo.
+services:
+  - type: web
+    name: carebly
+    runtime: python
+    plan: starter            # persistent disks need a paid plan
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    # One process only: the reminder scheduler runs inside it.
+    startCommand: gunicorn app:app --workers 1 --threads 8 --bind 0.0.0.0:$PORT
+    healthCheckPath: /healthz
+    disk:
+      name: carebly-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: TZ
+        value: Asia/Kolkata
+      - key: DATABASE_PATH
+        value: /var/data/carebly.db
+      - key: SECRET_KEY
+        generateValue: true
+      - key: SESSION_COOKIE_SECURE
+        value: "1"
+      - key: ENABLE_SCHEDULER
+        value: "1"
+      - key: DEFAULT_COUNTRY_CODE
+        value: "91"
+      # Set these in the dashboard (sync: false = you type the value there).
+      - key: ADMIN_SIGNUP_CODE
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: CLINIC_NAME
+        sync: false
+      - key: CLINIC_TAGLINE
+        sync: false
+      - key: CLINIC_ADDRESS
+        sync: false
+      - key: CLINIC_PHONE
+        sync: false
+      - key: CLINIC_EMAIL
+        sync: false
+      - key: CLINIC_HOURS
+        sync: false
+      - key: CLINIC_MAP_EMBED_URL
+        sync: false
+      - key: CLINIC_WHATSAPP
+        sync: false

@@ -5,6 +5,7 @@
     <h1>Register Patient</h1>
 
     <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="form-group">
         <label>Full Name *</label>
         <input type="text" name="name" required>
@@ -17,7 +18,19 @@
 
       <div class="form-group">
         <label>Password *</label>
-        <input type="password" name="password" required>
+        <input type="password" name="password" minlength="8" required>
+      </div>
+
+      <div class="form-group">
+        <label>Mobile Number (WhatsApp) *</label>
+        <input type="tel" name="phone" placeholder="98765 43210" required>
+      </div>
+
+      <div class="form-group">
+        <label style="font-weight:normal;">
+          <input type="checkbox" name="whatsapp_opt_in" value="1" checked>
+          Send me appointment updates and reminders on WhatsApp
+        </label>
       </div>
 
       <div class="form-group">

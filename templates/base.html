@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Carebly - Healthcare Management{% endblock %}</title>
+    <title>{% block title %}{{ clinic.name }}{% endblock %}</title>
     <style>
         * {
             margin: 0;
@@ -507,7 +507,7 @@
             <div class="sidebar-brand">
                 <h1>
                     <div class="sidebar-brand-icon">🏥</div>
-                    Carebly
+                    {{ clinic.name }}
                 </h1>
                 <p class="sidebar-role">
                     {% if session.get('role') == 'patient' %}Patient
@@ -576,7 +576,7 @@
         <div class="main-content">
             <!-- HEADER -->
             <header class="header">
-                <div class="header-title">{% block header_title %}Carebly{% endblock %}</div>
+                <div class="header-title">{% block header_title %}{{ clinic.name }}{% endblock %}</div>
                 <div class="header-user">
                     <div class="user-avatar">{{ session.get('name', 'U')[0].upper() }}</div>
                     <div class="user-name">{{ session.get('name', 'User') }}</div>

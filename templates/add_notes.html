@@ -5,6 +5,7 @@
   <p>Patient: {{ appt.patient_name }} | Date & Time: {{ appt.date_time }}</p>
 
   <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="form-group">
       <label>Diagnosis</label>
       <textarea name="diagnosis" rows="2" style="width:100%;" required></textarea>
