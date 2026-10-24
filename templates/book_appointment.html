@@ -1,26 +1,30 @@
 {% extends "base.html" %}
+{% block header_title %}Book Appointment{% endblock %}
 {% block content %}
-<div class="main-content">
-  <h1>Book Appointment</h1>
+<div class="card" style="max-width: 560px;">
+  <h2 style="margin-bottom: 1rem;">Book an appointment</h2>
 
   <form method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div class="form-group">
-      <label>Select Doctor</label>
-      <select name="doctor_id" required>
-        <option value="">-- Select --</option>
+    <div style="margin-bottom: 1rem;">
+      <label style="display:block; font-weight:600; margin-bottom:.4rem;">Doctor</label>
+      <select name="doctor_id" required style="width:100%; padding:.7rem; border:1px solid #CBD5E1; border-radius:8px; font-size:1rem;">
+        <option value="">Select a doctor</option>
         {% for d in doctors %}
-          <option value="{{ d.id }}">{{ d.name }} ({{ d.email }})</option>
+          <option value="{{ d.id }}">{{ d.name|doctor }}{% if d.specialty %} ({{ d.specialty }}){% endif %}</option>
         {% endfor %}
       </select>
     </div>
 
-    <div class="form-group">
-      <label>Date & Time (YYYY-MM-DD HH:MM)</label>
-      <input type="text" name="date_time" placeholder="2026-01-20 10:30" required>
+    <div style="margin-bottom: 1.25rem;">
+      <label style="display:block; font-weight:600; margin-bottom:.4rem;">Date &amp; time</label>
+      <input type="datetime-local" name="date_time" step="1800" min="{{ min_time }}" required
+             style="width:100%; padding:.7rem; border:1px solid #CBD5E1; border-radius:8px; font-size:1rem;">
+      <small style="color:#64748B;">Clinic hours: {{ clinic.hours }}</small>
     </div>
 
-    <button class="btn btn-primary" type="submit">Book</button>
+    <button class="btn btn-primary" type="submit">Request appointment</button>
+    <p style="margin-top:.75rem; color:#64748B; font-size:.9rem;">The doctor will confirm your request, and you'll get the confirmation on WhatsApp.</p>
   </form>
 </div>
 {% endblock %}

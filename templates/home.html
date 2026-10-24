@@ -92,8 +92,8 @@
         <div class="grid">
           {% for d in doctors %}
             <div class="card">
-              <div class="avatar">{{ d.name[0]|upper }}</div>
-              <h3>{{ d.name }}</h3>
+              <div class="avatar">{{ d.name|initial }}</div>
+              <h3>{{ d.name|doctor }}</h3>
               <p class="muted">{{ d.specialty or "General Physician" }}</p>
             </div>
           {% endfor %}

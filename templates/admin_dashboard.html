@@ -69,8 +69,8 @@
                 {% for appt in appointments %}
                 <tr>
                     <td><strong>{{ appt.patient_name }}</strong></td>
-                    <td><strong>Dr. {{ appt.doctor_name }}</strong></td>
-                    <td>{{ appt.appointment_datetime }}</td>
+                    <td><strong>{{ appt.doctor_name|doctor }}</strong></td>
+                    <td>{{ appt.appointment_datetime|slot }}</td>
                     <td>
                         <span class="status-badge status-{{ appt.status }}">
                             {{ appt.status }}

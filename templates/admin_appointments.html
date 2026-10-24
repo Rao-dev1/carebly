@@ -17,7 +17,7 @@
           <td>{{ a.id }}</td>
           <td>{{ a.doctor_name }}</td>
           <td>{{ a.patient_name }}</td>
-          <td>{{ a.date_time }}</td>
+          <td>{{ a.date_time|slot }}</td>
           <td>{{ a.status }}</td>
         </tr>
       {% endfor %}

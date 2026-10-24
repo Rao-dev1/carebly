@@ -25,6 +25,24 @@ csrf = CSRFProtect(app)
 SLOT_MINUTES = 30
 
 
+@app.template_filter("doctor")
+def doctor_name_filter(name):
+    """Show a doctor's name with a single 'Dr.' prefix."""
+    name = (name or "").strip()
+    return name if name.lower().startswith(("dr.", "dr ")) else f"Dr. {name}"
+
+@app.template_filter("slot")
+def slot_filter(iso):
+    return format_slot(iso)
+
+@app.template_filter("initial")
+def initial_filter(name):
+    name = (name or "").strip()
+    for prefix in ("Dr. ", "Dr "):
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+    return name[:1].upper() or "?"
+
 @app.context_processor
 def inject_clinic():
     return {"clinic": {
@@ -592,7 +610,7 @@ def dashboard():
         # Recent appointments
         appts = db.execute(
             "SELECT a.id, p.name as patient_name, d.name as doctor_name, "
-            "a.date_time, a.status FROM appointments a "
+            "a.date_time AS appointment_datetime, a.status FROM appointments a "
             "JOIN users p ON a.patient_id = p.id "
             "JOIN users d ON a.doctor_id = d.id "
             "ORDER BY a.date_time DESC LIMIT 10"
@@ -953,7 +971,8 @@ def book_appointment():
         "SELECT id, name, email, specialty FROM users WHERE role = 'doctor' AND status = 'active'"
     ).fetchall()
 
-    return render_template("book_appointment.html", doctors=doctors)
+    min_time = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    return render_template("book_appointment.html", doctors=doctors, min_time=min_time)
 
 @app.route("/admin/appointments")
 def admin_appointments():
