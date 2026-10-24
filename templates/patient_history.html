@@ -7,7 +7,7 @@
     <ul>
       {% for h in history %}
         <li style="margin-bottom:12px;">
-          <strong>{{ h.created_at }}</strong> – Dr. {{ h.doctor_name }}<br>
+          <strong>{{ h.created_at|slot }}</strong> – {{ h.doctor_name|doctor }}<br>
           Diagnosis: {{ h.diagnosis }}<br>
           Notes: {{ h.notes }}
         </li>

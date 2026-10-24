@@ -9,7 +9,7 @@
         <li style="margin-bottom:12px;">
           <strong>{{ m.medicine_name }}</strong> – {{ m.dosage }}<br>
           Frequency: {{ m.frequency }} | Duration: {{ m.duration }}<br>
-          Prescribed by: Dr. {{ m.doctor_name }} on {{ m.prescribed_at }}
+          Prescribed by: {{ m.doctor_name|doctor }} on {{ m.prescribed_at|slot }}
         </li>
       {% endfor %}
     </ul>

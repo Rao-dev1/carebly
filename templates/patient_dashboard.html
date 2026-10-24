@@ -39,7 +39,7 @@
         {% if last_visit %}
             <div style="font-size: 1rem; color: var(--text-dark); margin: 1rem 0;">
                 <strong>{{ last_visit.doctor_name }}</strong><br>
-                <span style="color: var(--text-light);">{{ last_visit.appointment_datetime }}</span>
+                <span style="color: var(--text-light);">{{ last_visit.appointment_datetime|slot }}</span>
             </div>
         {% else %}
             <p class="card-text">No visits yet</p>
@@ -64,8 +64,8 @@
             <tbody>
                 {% for appt in appointments %}
                 <tr>
-                    <td><strong>Dr. {{ appt.doctor_name }}</strong></td>
-                    <td>{{ appt.appointment_datetime }}</td>
+                    <td><strong>{{ appt.doctor_name|doctor }}</strong></td>
+                    <td>{{ appt.appointment_datetime|slot }}</td>
                     <td>
                         <span class="status-badge status-{{ appt.status }}">
                             {{ appt.status }}

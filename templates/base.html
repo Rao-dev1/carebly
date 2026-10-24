@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Carebly - Healthcare Management{% endblock %}</title>
+    <title>{% block title %}{{ clinic.name }}{% endblock %}</title>
     <style>
         * {
             margin: 0;
@@ -497,17 +497,31 @@
                 text-align: center;
             }
         }
+        /* Login and signup pages (shown without the sidebar) */
+        .main-content.no-sidebar { margin-left: 0; }
+        .auth-container { display: flex; justify-content: center; padding: 2rem 0; }
+        .login-card { background: var(--white); border-radius: 14px; padding: 2rem; width: 100%; max-width: 440px;
+                      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08); }
+        .login-card h1 { font-size: 1.6rem; margin-bottom: 0.5rem; }
+        .login-card > p { color: #64748B; margin-bottom: 1.25rem; }
+        .form-group { margin-bottom: 1rem; }
+        .form-group label { display: block; font-weight: 600; margin-bottom: 0.4rem; }
+        .form-group input:not([type=checkbox]), .form-group select {
+            width: 100%; padding: 0.7rem; border: 1px solid #CBD5E1; border-radius: 8px; font-size: 1rem; }
+        .login-card .btn { width: 100%; justify-content: center; }
+        .login-card a { color: var(--primary-dark); }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
 <body>
     <div class="container-main">
         <!-- SIDEBAR -->
+        {% if session.get('user_id') %}
         <aside class="sidebar">
             <div class="sidebar-brand">
                 <h1>
                     <div class="sidebar-brand-icon">🏥</div>
-                    Carebly
+                    {{ clinic.name }}
                 </h1>
                 <p class="sidebar-role">
                     {% if session.get('role') == 'patient' %}Patient
@@ -571,16 +585,21 @@
                 </a>
             </div>
         </aside>
+        {% endif %}
 
         <!-- MAIN CONTENT -->
-        <div class="main-content">
+        <div class="main-content{% if not session.get('user_id') %} no-sidebar{% endif %}">
             <!-- HEADER -->
             <header class="header">
-                <div class="header-title">{% block header_title %}Carebly{% endblock %}</div>
+                <div class="header-title">{% block header_title %}{{ clinic.name }}{% endblock %}</div>
+                {% if session.get('user_id') %}
                 <div class="header-user">
-                    <div class="user-avatar">{{ session.get('name', 'U')[0].upper() }}</div>
+                    <div class="user-avatar">{{ session.get('name', 'U')|initial }}</div>
                     <div class="user-name">{{ session.get('name', 'User') }}</div>
                 </div>
+                {% else %}
+                <a href="{{ url_for('home') }}" style="color: inherit;">Back to website</a>
+                {% endif %}
             </header>
 
             <!-- CONTENT -->

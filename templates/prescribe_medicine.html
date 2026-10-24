@@ -2,10 +2,11 @@
 {% block content %}
 <div class="main-content">
   <h1>Prescribe Medicine for Appointment {{ appt.id }}</h1>
-  <p>Patient: {{ appt.patient_name }} | Date & Time: {{ appt.date_time }}</p>
+  <p>Patient: {{ appt.patient_name }} | Date & Time: {{ appt.date_time|slot }}</p>
 
   <h3>Add New Medicine</h3>
   <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="form-group">
       <label>Medicine Name *</label>
       <input type="text" name="medicine_name" required>
@@ -36,7 +37,7 @@
         <li>
           <strong>{{ m.medicine_name }}</strong> – {{ m.dosage }}<br>
           Frequency: {{ m.frequency }} | Duration: {{ m.duration }}<br>
-          <small>Prescribed at: {{ m.prescribed_at }}</small>
+          <small>Prescribed at: {{ m.prescribed_at|slot }}</small>
         </li>
       {% endfor %}
     </ul>

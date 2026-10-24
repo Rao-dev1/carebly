@@ -1,41 +1,245 @@
-from flask import Flask, render_template, request, redirect, url_for, session, g, flash
+from flask import Flask, render_template, request, redirect, url_for, session, g, flash, abort, current_app
 from datetime import datetime, timedelta
-from flask_apscheduler import APScheduler
+from functools import wraps
+from flask_wtf.csrf import CSRFProtect
+from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.security import generate_password_hash, check_password_hash
 
+import hmac
+import logging
 import sqlite3
 import os
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, "carebly.db")
+from config import Config, BASE_DIR
+from whatsapp import WhatsAppClient, normalize_phone, verify_signature, parse_webhook, classify_reply
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("carebly")
 
 app = Flask(__name__)
-app.secret_key = "change-this-secret-key"
-app.secret_key = "x9F!2kLmPq#7zV1@2026"
-scheduler = APScheduler()
-scheduler.init_app(app)
-scheduler.start()
-@scheduler.task('interval', id='check_reminders', seconds=60)
+app.config.from_object(Config)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+csrf = CSRFProtect(app)
+
+# Appointment slot length in minutes.
+SLOT_MINUTES = 30
+
+
+@app.template_filter("doctor")
+def doctor_name_filter(name):
+    """Show a doctor's name with a single 'Dr.' prefix."""
+    name = (name or "").strip()
+    return name if name.lower().startswith(("dr.", "dr ")) else f"Dr. {name}"
+
+@app.template_filter("slot")
+def slot_filter(iso):
+    return format_slot(iso)
+
+@app.template_filter("initial")
+def initial_filter(name):
+    name = (name or "").strip()
+    for prefix in ("Dr. ", "Dr "):
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+    return name[:1].upper() or "?"
+
+@app.context_processor
+def inject_clinic():
+    return {"clinic": {
+        "name": app.config["CLINIC_NAME"],
+        "tagline": app.config["CLINIC_TAGLINE"],
+        "address": app.config["CLINIC_ADDRESS"],
+        "phone": app.config["CLINIC_PHONE"],
+        "email": app.config["CLINIC_EMAIL"],
+        "hours": app.config["CLINIC_HOURS"],
+        "map_embed_url": app.config["CLINIC_MAP_EMBED_URL"],
+        "whatsapp": app.config["CLINIC_WHATSAPP"],
+    }}
+
+
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
+
+def get_db():
+    if "db" not in g:
+        g.db = sqlite3.connect(current_app.config["DATABASE"])
+        g.db.row_factory = sqlite3.Row
+        g.db.execute("PRAGMA foreign_keys = ON")
+    return g.db
+
+@app.teardown_appcontext
+def close_db(exception):
+    db = g.pop("db", None)
+    if db is not None:
+        db.close()
+
+# Columns added after the first release; added to older databases on startup.
+MIGRATION_COLUMNS = {
+    "users": {
+        "patient_code": "TEXT",
+        "phone": "TEXT",
+        "specialty": "TEXT",
+        "whatsapp_opt_in": "INTEGER NOT NULL DEFAULT 1",
+    },
+    "appointments": {"reminder_sent": "INTEGER DEFAULT 0"},
+}
+
+def init_db(db_path):
+    os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    try:
+        for table, columns in MIGRATION_COLUMNS.items():
+            existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if not existing:
+                continue  # new database, schema.sql creates it
+            for col, ddl in columns.items():
+                if col not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+        with open(os.path.join(BASE_DIR, "schema.sql")) as f:
+            conn.executescript(f.read())
+        conn.commit()
+    finally:
+        conn.close()
+
+@app.cli.command("init-db")
+def init_db_command():
+    """Create or upgrade the database tables."""
+    init_db(app.config["DATABASE"])
+    print(f"Database ready at {app.config['DATABASE']}")
+
+
+# ---------------------------------------------------------------------------
+# Auth helpers
+# ---------------------------------------------------------------------------
+
+def hash_password(password):
+    return generate_password_hash(password)
+
+def password_matches(stored, given):
+    """Check a password. Accepts legacy plain-text rows so old data still works."""
+    if stored.startswith(("scrypt:", "pbkdf2:")):
+        return check_password_hash(stored, given)
+    return stored == given
+
+def login_required(role):
+    def decorator(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if "user_id" not in session or session.get("role") != role:
+                return redirect(url_for("login"))
+            return view(*args, **kwargs)
+        return wrapped
+    return decorator
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp notifications
+# ---------------------------------------------------------------------------
+
+def get_whatsapp():
+    c = current_app.config
+    return WhatsAppClient(
+        c["WHATSAPP_TOKEN"], c["WHATSAPP_PHONE_NUMBER_ID"],
+        api_version=c["WHATSAPP_API_VERSION"], lang=c["WHATSAPP_TEMPLATE_LANG"],
+    )
+
+def log_whatsapp(db, direction, phone, kind, body, status, appointment_id=None, wa_message_id=None, error=None):
+    db.execute(
+        """
+        INSERT INTO whatsapp_messages
+            (direction, phone, appointment_id, kind, body, wa_message_id, status, error, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (direction, phone, appointment_id, kind, body, wa_message_id, status, error,
+         datetime.now().isoformat(timespec="seconds")),
+    )
+
+def format_slot(iso):
+    try:
+        return datetime.fromisoformat(iso).strftime("%a %d %b %Y, %I:%M %p")
+    except (TypeError, ValueError):
+        return iso
+
+# Template name -> body parameters, in order. Create these templates in
+# WhatsApp Manager with matching {{1}}, {{2}}... placeholders (see README).
+TEMPLATES = {
+    "appointment_received": ("patient_name", "doctor_name", "when"),
+    "appointment_confirmed": ("patient_name", "doctor_name", "when"),
+    "appointment_rejected": ("patient_name", "doctor_name", "when"),
+    "appointment_reminder": ("patient_name", "doctor_name", "when"),
+}
+
+def notify_appointment(db, appt_id, template):
+    """Send a WhatsApp template about an appointment to its patient.
+
+    Never raises: a messaging failure must not break booking.
+    """
+    try:
+        row = db.execute(
+            """
+            SELECT a.id, a.date_time, p.name AS patient_name, p.phone, p.whatsapp_opt_in,
+                   d.name AS doctor_name
+            FROM appointments a
+            JOIN users p ON a.patient_id = p.id
+            JOIN users d ON a.doctor_id = d.id
+            WHERE a.id = ?
+            """,
+            (appt_id,),
+        ).fetchone()
+        if not row or not row["phone"] or not row["whatsapp_opt_in"]:
+            return False
+        values = {
+            "patient_name": row["patient_name"],
+            "doctor_name": row["doctor_name"],
+            "when": format_slot(row["date_time"]),
+        }
+        params = [values[k] for k in TEMPLATES[template]]
+        status, msg_id, error = get_whatsapp().send_template(row["phone"], template, params)
+        log_whatsapp(db, "out", row["phone"], template, " | ".join(params), status,
+                     appointment_id=appt_id, wa_message_id=msg_id, error=error)
+        db.commit()
+        return status != "failed"
+    except Exception:
+        log.exception("WhatsApp notification %s for appointment %s failed", template, appt_id)
+        return False
+
+
+def send_due_reminders(db, now=None):
+    """Send reminders for booked appointments starting within the reminder window."""
+    now = now or datetime.now()
+    window_end = now + timedelta(hours=current_app.config["REMINDER_HOURS_BEFORE"])
+    rows = db.execute(
+        """
+        SELECT id FROM appointments
+        WHERE status = 'booked' AND reminder_sent = 0
+          AND date_time > ? AND date_time <= ?
+        """,
+        (now.isoformat(timespec="minutes"), window_end.isoformat(timespec="minutes")),
+    ).fetchall()
+    for r in rows:
+        # Mark first so a crash mid-send can't cause a reminder storm.
+        db.execute("UPDATE appointments SET reminder_sent = 1 WHERE id = ?", (r["id"],))
+        db.commit()
+        notify_appointment(db, r["id"], "appointment_reminder")
+    return len(rows)
+
 def check_reminders():
     with app.app_context():
-        db = get_db()
-        now = datetime.now().isoformat(timespec="minutes")
-        rows = db.execute(
-            """
-            SELECT a.id, a.date_time, u.email
-            FROM appointments a
-            JOIN users u ON a.patient_id = u.id
-            WHERE a.status='booked' AND a.reminder_sent=0
-            """
-        ).fetchall()
-        for r in rows:
-            # TODO: compare times & send notification (email/SMS)
-            # For now, just mark as sent and log
-            print(f"Reminder would be sent to {r['email']} for {r['date_time']}")
-            db.execute(
-                "UPDATE appointments SET reminder_sent=1 WHERE id=?",
-                (r["id"],),
-            )
-        db.commit()
+        try:
+            sent = send_due_reminders(get_db())
+            if sent:
+                log.info("Sent %d appointment reminders", sent)
+        except Exception:
+            log.exception("Reminder job failed")
+
+def start_scheduler():
+    from apscheduler.schedulers.background import BackgroundScheduler
+    scheduler = BackgroundScheduler(daemon=True)
+    scheduler.add_job(check_reminders, "interval", seconds=60, id="check_reminders",
+                      max_instances=1, coalesce=True)
+    scheduler.start()
+    return scheduler
 
 
 def get_next_available_slot(db, doctor_id):
@@ -50,7 +254,8 @@ def get_next_available_slot(db, doctor_id):
         slot = base + timedelta(minutes=30 * i)
         iso = slot.isoformat(timespec="minutes")
         row = db.execute(
-            "SELECT 1 FROM appointments WHERE doctor_id=? AND date_time=?",
+            "SELECT 1 FROM appointments WHERE doctor_id=? AND date_time=? "
+            "AND status IN ('pending', 'booked')",
             (doctor_id, iso),
         ).fetchone()
         if not row:
@@ -58,52 +263,68 @@ def get_next_available_slot(db, doctor_id):
 
     return None  # no slot found
 @app.route("/appointments/autobook/<int:doctor_id>", methods=["POST"])
+@login_required("patient")
 def autobook_appointment(doctor_id):
-    if "user_id" not in session or session["role"] != "patient":
-        return redirect(url_for("login"))
-
     db = get_db()
+    doctor = db.execute(
+        "SELECT id FROM users WHERE id = ? AND role = 'doctor' AND status = 'active'", (doctor_id,)
+    ).fetchone()
+    if not doctor:
+        abort(404)
     next_slot = get_next_available_slot(db, doctor_id)
     if not next_slot:
         flash("No free slot available for this doctor.", "error")
         return redirect(url_for("patient_appointments"))
 
-    db.execute(
+    cur = db.execute(
         "INSERT INTO appointments (doctor_id, patient_id, date_time, status) VALUES (?, ?, ?, 'pending')",
         (doctor_id, session["user_id"], next_slot),
     )
     db.commit()
+    notify_appointment(db, cur.lastrowid, "appointment_received")
     flash(f"Auto-booked next slot at {next_slot}", "success")
     return redirect(url_for("patient_appointments"))
 
-def get_db():
-    if "db" not in g:
-        g.db = sqlite3.connect(DATABASE)
-        g.db.row_factory = sqlite3.Row
-    return g.db
 
-@app.teardown_appcontext
-def close_db(exception):
-    db = g.pop("db", None)
-    if db is not None:
-        db.close()
+# ---------------------------------------------------------------------------
+# Public website
+# ---------------------------------------------------------------------------
 
-@app.route("/", methods=["GET", "POST"])
+@app.route("/")
+def home():
+    doctors = get_db().execute(
+        "SELECT id, name, specialty FROM users WHERE role = 'doctor' AND status = 'active' ORDER BY name"
+    ).fetchall()
+    return render_template("home.html", doctors=doctors)
+
+@app.route("/tasks/send-reminders", methods=["POST", "GET"])
+@csrf.exempt
+def send_reminders_task():
+    secret = app.config["CRON_SECRET"]
+    given = request.headers.get("X-Cron-Secret") or request.args.get("key", "")
+    if not secret or not hmac.compare_digest(secret, given):
+        abort(403)
+    return {"sent": send_due_reminders(get_db())}
+
+@app.route("/healthz")
+def healthz():
+    get_db().execute("SELECT 1")
+    return {"status": "ok"}
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        role = request.form["role"]
-        email = request.form["email"].strip()
-        password = request.form["password"]
+        role = request.form.get("role", "")
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
 
         db = get_db()
-        cur = db.execute(
-            "SELECT * FROM users WHERE email = ? AND password = ? AND role = ?",
-            (email, password, role),
-        )
-        user = cur.fetchone()
+        user = db.execute(
+            "SELECT * FROM users WHERE lower(email) = ? AND role = ?",
+            (email, role),
+        ).fetchone()
 
-        if not user:
+        if not user or not password_matches(user["password"], password):
             flash("Invalid email / password / role", "error")
             return redirect(url_for("login"))
 
@@ -111,6 +332,12 @@ def login():
             flash("Account not active", "error")
             return redirect(url_for("login"))
 
+        # Upgrade legacy plain-text passwords to a hash on successful login.
+        if not user["password"].startswith(("scrypt:", "pbkdf2:")):
+            db.execute("UPDATE users SET password = ? WHERE id = ?", (hash_password(password), user["id"]))
+            db.commit()
+
+        session.clear()
         session["user_id"] = user["id"]
         session["role"] = user["role"]
         session["name"] = user["name"]
@@ -123,33 +350,48 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
+def email_taken(db, email):
+    return db.execute("SELECT 1 FROM users WHERE lower(email) = ?", (email,)).fetchone() is not None
+
 @app.route("/register/patient", methods=["GET", "POST"])
 def register_patient():
     if request.method == "POST":
-        name = request.form["name"].strip()
-        email = request.form["email"].strip()
-        password = request.form["password"]
-        age = request.form.get("age")
-        gender = request.form.get("gender")
-        blood = request.form.get("blood_group")
+        name = request.form.get("name", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        phone_raw = request.form.get("phone", "").strip()
+        age = request.form.get("age") or None
+        gender = request.form.get("gender") or None
+        blood = request.form.get("blood_group") or None
+        opt_in = 1 if request.form.get("whatsapp_opt_in") else 0
 
-        if not name or not email or not password:
+        if not name or not email or not password or not phone_raw:
             flash("All required fields must be filled", "error")
             return redirect(url_for("register_patient"))
 
+        if len(password) < 8:
+            flash("Password must be at least 8 characters", "error")
+            return redirect(url_for("register_patient"))
+
+        phone = normalize_phone(phone_raw, app.config["DEFAULT_COUNTRY_CODE"])
+        if not phone:
+            flash("Please enter a valid mobile number", "error")
+            return redirect(url_for("register_patient"))
+
         db = get_db()
-        cur = db.execute("SELECT id FROM users WHERE email = ?", (email,))
-        if cur.fetchone():
+        if email_taken(db, email):
             flash("Email already registered", "error")
             return redirect(url_for("register_patient"))
 
-        db.execute(
+        cur = db.execute(
             """
-            INSERT INTO users (role, name, email, password, age, gender, blood_group, status)
-            VALUES ('patient', ?, ?, ?, ?, ?, ?, 'active')
+            INSERT INTO users (role, name, email, password, phone, whatsapp_opt_in,
+                               age, gender, blood_group, status)
+            VALUES ('patient', ?, ?, ?, ?, ?, ?, ?, ?, 'active')
             """,
-            (name, email, password, age, gender, blood),
+            (name, email, hash_password(password), phone, opt_in, age, gender, blood),
         )
+        db.execute("UPDATE users SET patient_code = ? WHERE id = ?", (f"P{cur.lastrowid:05d}", cur.lastrowid))
         db.commit()
         flash("Patient registered successfully. You can login now.", "success")
         return redirect(url_for("login"))
@@ -157,45 +399,57 @@ def register_patient():
     return render_template("register_patient.html")
 
 @app.route("/register/doctor", methods=["GET", "POST"])
+@login_required("admin")
 def register_doctor():
+    """Doctors are added by an admin, never by public signup."""
     if request.method == "POST":
-        name = request.form["name"].strip()
-        email = request.form["email"].strip()
-        password = request.form["password"]
+        name = request.form.get("name", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        specialty = request.form.get("specialty", "").strip() or None
 
         if not name or not email or not password:
             flash("All required fields must be filled", "error")
             return redirect(url_for("register_doctor"))
 
+        if len(password) < 8:
+            flash("Password must be at least 8 characters", "error")
+            return redirect(url_for("register_doctor"))
+
         db = get_db()
-        cur = db.execute("SELECT id FROM users WHERE email = ?", (email,))
-        if cur.fetchone():
+        if email_taken(db, email):
             flash("Email already registered", "error")
             return redirect(url_for("register_doctor"))
 
         db.execute(
             """
-            INSERT INTO users (role, name, email, password, status)
-            VALUES ('doctor', ?, ?, ?, 'active')
+            INSERT INTO users (role, name, email, password, specialty, status)
+            VALUES ('doctor', ?, ?, ?, ?, 'active')
             """,
-            (name, email, password),
+            (name, email, hash_password(password), specialty),
         )
         db.commit()
-        flash("Doctor registered successfully. You can login now.", "success")
-        return redirect(url_for("login"))
+        flash(f"Doctor {name} added. They can login now.", "success")
+        return redirect(url_for("admin_users"))
 
     return render_template("register_doctor.html")
 
 @app.route("/register/admin", methods=["GET", "POST"])
 def register_admin():
-    if request.method == "POST":
-        name = request.form["name"].strip()
-        email = request.form["email"].strip()
-        password = request.form["password"]
-        admin_code = request.form["admin_code"].strip()
+    db = get_db()
+    has_admin = db.execute("SELECT 1 FROM users WHERE role = 'admin'").fetchone() is not None
+    signup_code = app.config["ADMIN_SIGNUP_CODE"]
+    if has_admin and not signup_code:
+        flash("Admin signup is closed. Ask an existing admin.", "error")
+        return redirect(url_for("login"))
 
-        # simple fixed code (you can change it)
-        if admin_code != "ADMIN2026":
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        admin_code = request.form.get("admin_code", "").strip()
+
+        if signup_code and admin_code != signup_code:
             flash("Invalid admin code", "error")
             return redirect(url_for("register_admin"))
 
@@ -203,9 +457,11 @@ def register_admin():
             flash("All required fields must be filled", "error")
             return redirect(url_for("register_admin"))
 
-        db = get_db()
-        cur = db.execute("SELECT id FROM users WHERE email = ?", (email,))
-        if cur.fetchone():
+        if len(password) < 8:
+            flash("Password must be at least 8 characters", "error")
+            return redirect(url_for("register_admin"))
+
+        if email_taken(db, email):
             flash("Email already registered", "error")
             return redirect(url_for("register_admin"))
 
@@ -214,13 +470,13 @@ def register_admin():
             INSERT INTO users (role, name, email, password, status)
             VALUES ('admin', ?, ?, ?, 'active')
             """,
-            (name, email, password),
+            (name, email, hash_password(password)),
         )
         db.commit()
         flash("Admin registered successfully. You can login now.", "success")
         return redirect(url_for("login"))
 
-    return render_template("register_admin.html")
+    return render_template("register_admin.html", needs_code=bool(signup_code))
 
 @app.route("/dashboard")
 def dashboard():
@@ -354,7 +610,7 @@ def dashboard():
         # Recent appointments
         appts = db.execute(
             "SELECT a.id, p.name as patient_name, d.name as doctor_name, "
-            "a.date_time, a.status FROM appointments a "
+            "a.date_time AS appointment_datetime, a.status FROM appointments a "
             "JOIN users p ON a.patient_id = p.id "
             "JOIN users d ON a.doctor_id = d.id "
             "ORDER BY a.date_time DESC LIMIT 10"
@@ -459,52 +715,30 @@ def patient_appointments():
         name=session["name"],
         appointments=appts,
     )
-@app.route("/appointments/<int:appt_id>/approve")
-def approve_appointment(appt_id):
-    if "user_id" not in session or session.get("role") != "doctor":
-        return redirect(url_for("login"))
-
-    db = get_db()
-    db.execute(
-        "UPDATE appointments SET status = 'booked' WHERE id = ?",
-        (appt_id,)
-    )
-    db.commit()
-    flash("Appointment approved successfully.", "success")
-    return redirect(url_for("doctor_appointments"))
-
-
-@app.route("/appointments/<int:appt_id>/reject")
-def reject_appointment(appt_id):
-    if "user_id" not in session or session.get("role") != "doctor":
-        return redirect(url_for("login"))
-
-    db = get_db()
-    db.execute(
-        "UPDATE appointments SET status = 'rejected' WHERE id = ?",
-        (appt_id,)
-    )
-    db.commit()
-    flash("Appointment rejected.", "warning")
-    return redirect(url_for("doctor_appointments"))
-
 @app.route("/appointments/doctor", methods=["GET", "POST"])
+@login_required("doctor")
 def doctor_appointments():
-    if "user_id" not in session or session["role"] != "doctor":
-        return redirect(url_for("login"))
-
     db = get_db()
 
     if request.method == "POST":
-        appt_id = request.form["appt_id"]
-        action = request.form["action"]
+        appt_id = request.form.get("appt_id", type=int)
+        action = request.form.get("action")
+        if action not in ("approve", "reject") or appt_id is None:
+            abort(400)
         new_status = "booked" if action == "approve" else "rejected"
-        db.execute(
-            "UPDATE appointments SET status = ? WHERE id = ? AND doctor_id = ?",
+        # Only the appointment's own doctor can change it, and only while pending.
+        cur = db.execute(
+            "UPDATE appointments SET status = ? WHERE id = ? AND doctor_id = ? AND status = 'pending'",
             (new_status, appt_id, session["user_id"]),
         )
         db.commit()
-        flash(f"Appointment {new_status}.", "success")
+        if cur.rowcount:
+            notify_appointment(db, appt_id,
+                               "appointment_confirmed" if new_status == "booked" else "appointment_rejected")
+            flash(f"Appointment {new_status}.", "success")
+        else:
+            flash("Appointment not found or already handled.", "error")
+        return redirect(url_for("doctor_appointments"))
 
     appts = db.execute(
         """
@@ -576,13 +810,14 @@ def add_notes(appt_id):
             free_slot = find_next_free_slot(db, session["user_id"], ideal_next)
 
             if free_slot:
-                db.execute(
+                cur = db.execute(
                     """
                     INSERT INTO appointments (doctor_id, patient_id, date_time, status)
                     VALUES (?, ?, ?, 'pending')
                     """,
                     (session["user_id"], appt["patient_id"], free_slot),
                 )
+                followup_id = cur.lastrowid
                 flash(f"Next appointment auto-booked on {free_slot} (next free slot)", "success")
             else:
                 flash("Visit notes saved. Could not find a free slot for follow-up.", "error")
@@ -590,6 +825,8 @@ def add_notes(appt_id):
             flash("Visit notes saved. No follow-up scheduled.", "success")
 
         db.commit()
+        if followup_days > 0 and free_slot:
+            notify_appointment(db, followup_id, "appointment_received")
         return redirect(url_for("doctor_appointments"))
 
     return render_template("add_notes.html", appt=appt)
@@ -671,7 +908,6 @@ def patient_medicines():
 
     return render_template("patient_medicines.html", name=session["name"], medicines=medicines)
 
-from datetime import datetime  # make sure this import is at the top
 @app.route("/appointments/book", methods=["GET", "POST"])
 def book_appointment():
     if "user_id" not in session or session["role"] != "patient":
@@ -680,8 +916,8 @@ def book_appointment():
     db = get_db()
 
     if request.method == "POST":
-        doctor_id = request.form["doctor_id"]
-        date_time_str = request.form["date_time"].strip()
+        doctor_id = request.form.get("doctor_id", type=int)
+        date_time_str = request.form.get("date_time", "").strip()
 
         if not doctor_id or not date_time_str:
             flash("Please select doctor and date/time", "error")
@@ -695,9 +931,21 @@ def book_appointment():
             flash("Invalid date/time format. Use YYYY-MM-DD HH:MM", "error")
             return redirect(url_for("book_appointment"))
 
+        if dt <= datetime.now():
+            flash("Please choose a time in the future.", "error")
+            return redirect(url_for("book_appointment"))
+
+        doctor = db.execute(
+            "SELECT 1 FROM users WHERE id = ? AND role = 'doctor' AND status = 'active'", (doctor_id,)
+        ).fetchone()
+        if not doctor:
+            flash("Please select a valid doctor.", "error")
+            return redirect(url_for("book_appointment"))
+
         # Check if doctor already has an appointment at this exact time
         conflict = db.execute(
-            "SELECT 1 FROM appointments WHERE doctor_id = ? AND date_time = ?",
+            "SELECT 1 FROM appointments WHERE doctor_id = ? AND date_time = ? "
+            "AND status IN ('pending', 'booked')",
             (doctor_id, iso_time),
         ).fetchone()
 
@@ -706,7 +954,7 @@ def book_appointment():
             return redirect(url_for("book_appointment"))
 
         # Slot is free, create appointment
-        db.execute(
+        cur = db.execute(
             """
             INSERT INTO appointments (doctor_id, patient_id, date_time, status)
             VALUES (?, ?, ?, 'pending')
@@ -714,15 +962,17 @@ def book_appointment():
             (doctor_id, session["user_id"], iso_time),
         )
         db.commit()
+        notify_appointment(db, cur.lastrowid, "appointment_received")
         flash("Appointment request sent!", "success")
         return redirect(url_for("patient_appointments"))
 
     # GET: show form with list of doctors
     doctors = db.execute(
-        "SELECT id, name, email FROM users WHERE role = 'doctor'"
+        "SELECT id, name, email, specialty FROM users WHERE role = 'doctor' AND status = 'active'"
     ).fetchall()
 
-    return render_template("book_appointment.html", doctors=doctors)
+    min_time = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    return render_template("book_appointment.html", doctors=doctors, min_time=min_time)
 
 @app.route("/admin/appointments")
 def admin_appointments():
@@ -807,7 +1057,8 @@ def find_next_free_slot(db, doctor_id, start_datetime_str, max_attempts=20):
 
         # Check if doctor already has an appointment at this time
         row = db.execute(
-            "SELECT 1 FROM appointments WHERE doctor_id = ? AND date_time = ?",
+            "SELECT 1 FROM appointments WHERE doctor_id = ? AND date_time = ? "
+            "AND status IN ('pending', 'booked')",
             (doctor_id, iso_str),
         ).fetchone()
 
@@ -817,5 +1068,85 @@ def find_next_free_slot(db, doctor_id, start_datetime_str, max_attempts=20):
 
     return None  # No free slot found in max_attempts
 
+# ---------------------------------------------------------------------------
+# WhatsApp webhook (Meta calls this when patients reply)
+# ---------------------------------------------------------------------------
+
+@app.route("/webhooks/whatsapp", methods=["GET"])
+def whatsapp_verify():
+    """Meta's one-time verification handshake when the webhook URL is saved."""
+    token = app.config["WHATSAPP_VERIFY_TOKEN"]
+    if (token and request.args.get("hub.mode") == "subscribe"
+            and request.args.get("hub.verify_token") == token):
+        return request.args.get("hub.challenge", ""), 200
+    abort(403)
+
+@app.route("/webhooks/whatsapp", methods=["POST"])
+@csrf.exempt
+def whatsapp_webhook():
+    if not verify_signature(app.config["WHATSAPP_APP_SECRET"], request.get_data(),
+                            request.headers.get("X-Hub-Signature-256")):
+        abort(403)
+
+    db = get_db()
+    messages, statuses = parse_webhook(request.get_json(silent=True) or {})
+
+    for s in statuses:
+        if s["id"]:
+            db.execute("UPDATE whatsapp_messages SET status = ? WHERE wa_message_id = ?",
+                       (s["status"], s["id"]))
+
+    for m in messages:
+        log_whatsapp(db, "in", m["from"], m["type"], m["text"], "received", wa_message_id=m["id"])
+        handle_patient_reply(db, m["from"], m["text"])
+
+    db.commit()
+    # Always 200 quickly, otherwise Meta retries the delivery.
+    return "", 200
+
+def handle_patient_reply(db, phone, text):
+    """Let a patient confirm (1) or cancel (2) their next upcoming appointment."""
+    intent = classify_reply(text)
+    client = get_whatsapp()
+    if intent is None:
+        clinic_phone = app.config["CLINIC_PHONE"]
+        reply = ("Thanks for your message. Reply 1 to confirm or 2 to cancel your next appointment."
+                 + (f" For anything else please call {clinic_phone}." if clinic_phone else ""))
+        status, msg_id, error = client.send_text(phone, reply)
+        log_whatsapp(db, "out", phone, "text", reply, status, wa_message_id=msg_id, error=error)
+        return None
+
+    appt = db.execute(
+        """
+        SELECT a.id, a.date_time, d.name AS doctor_name
+        FROM appointments a
+        JOIN users p ON a.patient_id = p.id
+        JOIN users d ON a.doctor_id = d.id
+        WHERE p.phone = ? AND a.status IN ('pending', 'booked') AND a.date_time > ?
+        ORDER BY a.date_time
+        LIMIT 1
+        """,
+        (phone, datetime.now().isoformat(timespec="minutes")),
+    ).fetchone()
+
+    if not appt:
+        reply = "We couldn't find an upcoming appointment for this number."
+    elif intent == "cancel":
+        db.execute("UPDATE appointments SET status = 'cancelled' WHERE id = ?", (appt["id"],))
+        reply = f"Your appointment with {appt['doctor_name']} on {format_slot(appt['date_time'])} has been cancelled."
+    else:
+        reply = f"Thank you! See you on {format_slot(appt['date_time'])} with {appt['doctor_name']}."
+
+    status, msg_id, error = client.send_text(phone, reply)
+    log_whatsapp(db, "out", phone, "text", reply, status,
+                 appointment_id=appt["id"] if appt else None, wa_message_id=msg_id, error=error)
+    return intent if appt else None
+
+
+# Create/upgrade tables on startup so a fresh deploy works without manual steps.
+init_db(app.config["DATABASE"])
+if app.config["ENABLE_SCHEDULER"]:
+    start_scheduler()
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1")
